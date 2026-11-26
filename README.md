@@ -94,7 +94,7 @@ The deployable files are generated in `dist/`.
 
 ## 6. EXPA integration plan
 
-The current Vue app reads simulated data from `src/App.vue`. To connect live data, a backend would query EXPA for the selected range and return aggregate counts for each exchange direction and phase.
+The deployed Vue dashboard fetches simulated exchange data from a Netlify Function. If the API is unavailable, the dashboard displays a notice and uses its local demo dataset. The diagram below shows the proposed live EXPA integration.
 
 ```mermaid
 sequenceDiagram
