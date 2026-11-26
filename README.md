@@ -4,17 +4,18 @@ A one-page dashboard for reviewing the exchange performance of **AIESEC in Surab
 
 Built for the **IID Web Development Technical Task**.
 
+- [Live Dashboard](https://lc-performance-dashboard.netlify.app)
+- [Performance Data Report (CSV)](https://drive.google.com/drive/folders/1uh50Tc35oxdM7iyQBbn1tWwexvMo2bX6?usp=sharing)
+
 | File or folder | Contents | Technology |
 | --- | --- | --- |
-| [`src/App.vue`](src/App.vue) | Dashboard layout, demo data, date filters, funnels, charts, and CSV export | Vue 3, TypeScript, CSS |
+| [`src/App.vue`](src/App.vue) | Dashboard layout, date filters, funnels, charts, CSV export, and local fallback data | Vue 3, TypeScript, CSS |
 | [`src/main.ts`](src/main.ts) | Frontend entry point | Vue 3 |
+| [`netlify/functions/performance.mjs`](netlify/functions/performance.mjs) | Backend endpoint that serves simulated exchange data | JavaScript, Netlify Functions |
 | [`public/`](public/) | Static assets, including the AIESEC logo | JPG |
 | [`package.json`](package.json) | Dependencies and development scripts | npm, Vite |
 
-> The dashboard uses simulated exchange figures for **1 October–26 November 2026**. The proposed EXPA connection is documented in [Section 6](#6-expa-integration-plan).
-
-<!-- Add the deployment URL here when the dashboard is live. -->
-<!-- **Live demo:** [Open dashboard](YOUR_DEPLOYMENT_URL) -->
+> The dashboard uses simulated exchange figures for **1 October–26 November 2026**. The proposed live EXPA connection is documented in [Section 6](#6-expa-integration-plan).
 
 ## 1. Requirements
 
@@ -32,7 +33,7 @@ npm install
 npm run dev
 ```
 
-Open the **Local** URL printed in the terminal. Keep the terminal running while using the dashboard. The demo runs locally without an EXPA token.
+Open the **Local** URL printed in the terminal. The standalone Vite server uses the local demo dataset when the Netlify Function is unavailable. The demo requires no database or EXPA credential.
 
 ## 3. Using the dashboard
 
@@ -57,11 +58,12 @@ The default range is **1–26 November 2026**. It shows **706 sign-ups**, **358 
 
 | What to update | Where to make the change |
 | --- | --- |
-| Demo counts and coverage dates | Edit `demoRows`, `demoStart`, and `demoEnd` in `src/App.vue` |
-| Default date range and presets | Edit `ranges` in `src/App.vue` |
-| Phase labels and display order | Edit `phases` in `src/App.vue` |
-| CSV fields and filename | Edit `exportReport()` in `src/App.vue` |
-| Logo | Replace `public/aiesec-logo.jpg` |
+| Backend demo counts and dates | Edit `periods` in `netlify/functions/performance.mjs`. |
+| Local fallback data and coverage | Keep `demoRows`, `demoStart`, and `demoEnd` in `src/App.vue` in sync with the backend dataset. |
+| Default date range and presets | Edit `ranges` in `src/App.vue`. |
+| Phase labels and display order | Edit `phases` in `src/App.vue`. If a phase key changes, update the backend and fallback datasets too. |
+| CSV fields and filename | Edit `exportReport()` in `src/App.vue`. |
+| Logo | Replace `public/aiesec-logo.jpg`. |
 
 ### 4.1 Metric calculations
 
@@ -71,7 +73,7 @@ The default range is **1–26 November 2026**. It shows **706 sign-ups**, **358 
 | Table percentage | Phase count ÷ sign-ups for that exchange direction |
 | Overall SU → CO conversion | Total completed across oGX and iCX ÷ total sign-ups across oGX and iCX |
 
-Percentages are rounded to one decimal place. A zero denominator is shown as `—` on the dashboard.
+Percentages are rounded to one decimal place. A zero denominator appears as `—` on the dashboard.
 
 ## 5. Build and verification
 
@@ -82,47 +84,57 @@ npm run build
 npm run preview
 ```
 
-The deployable files are generated in `dist/`.
+The build output is generated in `dist/`. Use the [live dashboard](https://lc-performance-dashboard.netlify.app) to verify the deployed function.
 
 | Check | Expected result |
 | --- | --- |
-| Open the dashboard | November summary shows 706 sign-ups |
-| Select **Last month → Apply** | October summary shows 590 sign-ups |
-| Switch from **Daily** to **Weekly** | The chart groups applications into seven-day periods |
-| Click **Export Report** after applying October | The CSV contains October dates and columns for both oGX and iCX |
-| Open on a narrow screen | The funnels stack and wide content scrolls inside its section |
+| Open the dashboard | The default November range shows 706 sign-ups. |
+| Select **Last month → Apply** | The October range shows 590 sign-ups. |
+| Select **This year → Apply** | The available October and November data totals 1,296 sign-ups. |
+| Switch from **Daily** to **Weekly** | The chart groups applications into seven-day periods. |
+| Click **Export Report** after applying October | The CSV contains 1–31 October 2026 and columns for both oGX and iCX. |
+| Open on a narrow screen | The funnels stack and the table and chart scroll within their sections. |
+| Reload the live dashboard with **Network → Fetch/XHR** open | The `performance` request returns HTTP `200` with JSON containing `"source": "demo"` and `rows`. |
 
 ## 6. EXPA integration plan
 
-The deployed Vue dashboard fetches simulated exchange data from a Netlify Function. If the API is unavailable, the dashboard displays a notice and uses its local demo dataset. The diagram below shows the proposed live EXPA integration.
+The deployed Vue dashboard fetches simulated exchange data from `/.netlify/functions/performance`. If the function fails or returns an invalid response, the dashboard displays a notice and uses its local demo dataset.
+
+For a live integration, the backend would request LC Surabaya’s aggregate oGX and iCX metrics for the selected dates, then return phase counts to the dashboard. The EXPA Analytics API is a candidate for retrieving those aggregates.
 
 ```mermaid
 sequenceDiagram
-    participant UI as Vue dashboard
-    participant API as Backend API
-    participant EXPA as EXPA GraphQL
-    UI->>API: Request data for selected dates
-    API->>EXPA: Query oGX and iCX phase counts
-    EXPA-->>API: Return query results
-    API-->>UI: Return aggregate performance data
+    actor User
+    participant UI as Vue Dashboard
+    participant API as Backend Function
+    participant EXPA as EXPA Analytics API
+
+    User->>UI: Select dates and apply filter
+    UI->>API: Request LC Surabaya performance
+    API->>EXPA: Request aggregate oGX and iCX metrics
+    EXPA-->>API: Return aggregate results
+    API-->>UI: Return phase counts
+    UI-->>User: Display the updated dashboard
 ```
 
 ### 6.1 Credential handling
 
-Store the EXPA credential in a server-side environment variable such as `EXPA_TOKEN`. The backend reads it when calling EXPA and returns only the aggregate data needed by the dashboard. Keep the credential out of `VITE_` variables, client code, and Git commits.
+Store the EXPA credential in a server-side environment variable such as `EXPA_TOKEN`. The backend would use it for requests to EXPA and return only the aggregate data the dashboard needs. Keep the credential out of `VITE_` variables, frontend code, and Git commits.
 
 ## 7. Development issues
 
 | Issue | How I handled it |
 | --- | --- |
-| The EXPA application query returned zero records during testing. | I checked that the endpoint could return committee and opportunity data. Since the application query still returned zero, I used a clearly labeled demo dataset so the dashboard features could be tested. |
-| The initial line chart made the oGX and iCX daily counts hard to compare. | I replaced it with grouped bars so the two counts sit side by side for each day or week. |
+| The EXPA application query returned zero records during testing. | I confirmed that committee and opportunity queries returned data. I used a clearly labeled demo dataset to keep the dashboard testable and identified the aggregate Analytics API as a route to investigate for live data. |
+| The initial line chart made daily oGX and iCX counts hard to compare. | I replaced it with grouped bars so both counts sit side by side for each day or week. |
 
 ## 8. Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
 | `npm` cannot find `package.json` | Run the command from the project root. |
-| The logo does not appear | Check that the file is named `aiesec-logo.jpg` and is inside `public/`. |
+| The logo does not appear | Check that `public/aiesec-logo.jpg` exists. |
 | Changing dates does not update the numbers | Click **Apply** to confirm the new date range. |
+| **This year** and **Last 3 months** show the same totals | Both ranges include all available demo data, which covers October and November 2026. |
 | The dashboard shows **No demo data for this range** | Select a range that overlaps 1 October–26 November 2026. |
+| The dashboard shows **Demo API unavailable** | The dashboard is using its local fallback. On the live site, check the `performance` request in the browser’s Network panel. |
