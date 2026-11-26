@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const phases = [
   { key: 'SU', label: 'Sign Up' },
@@ -16,6 +16,18 @@ const intervals = ['Daily', 'Weekly'] as const
 type Phase = (typeof phases)[number]['key']
 type Direction = (typeof directions)[number]
 type Counts = Record<Phase, number>
+type PerformanceRow = { date: string; direction: Direction; counts: Counts }
+
+function isPerformanceRow(value: unknown): value is PerformanceRow {
+  if (!value || typeof value !== 'object') return false
+
+  const { date, direction, counts } = value as Partial<PerformanceRow>
+  return typeof date === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    && (direction === 'oGX' || direction === 'iCX')
+    && !!counts
+    && phases.every(({ key }) => Number.isSafeInteger(counts[key]) && counts[key] >= 0)
+}
 
 const demoStart = '2026-10-01'
 const demoEnd = '2026-11-26'
@@ -88,6 +100,29 @@ const demoRows = [
   ...makeDailyRows('2026-11-01', 26, 'iCX', { SU: 415, APL: 216, ACC: 111, APD: 69, RE: 51, CO: 48 }),
 ]
 
+const performanceRows = ref<PerformanceRow[]>(demoRows)
+const apiUnavailable = ref(false)
+
+onMounted(async () => {
+  try {
+    const response = await fetch('/.netlify/functions/performance')
+    if (!response.ok) {
+      throw new Error(`Performance API returned ${response.status}`)
+    }
+
+    const data = await response.json() as { source?: unknown; rows?: unknown }
+    if (data?.source !== 'demo' || !Array.isArray(data.rows)
+      || !data.rows.length || !data.rows.every(isPerformanceRow)) {
+      throw new Error('Unexpected performance API response')
+    }
+
+    performanceRows.value = data.rows
+  } catch (error) {
+    console.error('Could not load performance data', error)
+    apiUnavailable.value = true
+  }
+})
+
 const draftRange = ref({ ...ranges['This month'] })
 const appliedRange = ref({ ...ranges['This month'] })
 const activePreset = ref<Preset>('This month')
@@ -122,7 +157,7 @@ function clearFilters() {
 
 const filteredRows = computed(() => {
   const { start, end } = appliedRange.value
-  return demoRows.filter(({ date }) => date >= start && date <= end)
+  return performanceRows.value.filter(({ date }) => date >= start && date <= end)
 })
 
 const totals = computed(() => {
@@ -298,6 +333,10 @@ function exportReport() {
         <span><strong>Demo data</strong> · Simulated exchange figures.</span>
         <button type="button" aria-label="Dismiss demo banner" @click="noticeVisible = false">×</button>
       </div>
+
+      <p v-if="apiUnavailable" class="notice api-status" role="status">
+        Demo API unavailable. Showing local demo data.
+      </p>
 
       <form class="panel filters" @submit.prevent="applyFilters">
         <div class="filter-group">
@@ -563,6 +602,8 @@ h2 { font-size: 16px; line-height: 1.3; font-weight: 750; }
   background: #fff8e8;
   color: #542900;
 }
+
+.api-status { justify-content: flex-start; }
 
 .notice button { border: 0; background: transparent; color: inherit; font-size: 21px; }
 
